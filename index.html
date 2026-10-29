@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PredictiveOps – Machine Health & Facility Monitoring</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--tx:#14202e;--mu:#5d6b7c;--bd:#dde3ea;--ok:#1a9d5c;--wa:#d98a00;--cr:#d6342c;--ac:#2563eb;--okb:#e3f5ec;--wab:#fdf1d8;--crb:#fbe4e2;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e141b;--card:#18212c;--tx:#e8eef5;--mu:#93a1b3;--bd:#2a3644;--ok:#3ac47f;--wa:#f0a926;--cr:#f0605a;--ac:#6b9bff;--okb:#12301f;--wab:#3a2c0c;--crb:#3c1816;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e141b;--card:#18212c;--tx:#e8eef5;--mu:#93a1b3;--bd:#2a3644;--ok:#3ac47f;--wa:#f0a926;--cr:#f0605a;--ac:#6b9bff;--okb:#12301f;--wab:#3a2c0c;--crb:#3c1816;color-scheme:dark}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--bd)}
+h1{font-size:17px;margin:0}h1 small{display:block;font-weight:400;color:var(--mu);font-size:12px}
+nav{display:flex;gap:6px;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:6px 12px;border-radius:8px;cursor:pointer}
+button.on,button.pri{background:var(--ac);color:#fff;border-color:var(--ac)}button.dng{color:var(--cr);border-color:var(--cr)}
+main{max-width:1150px;margin:0 auto;padding:14px}
+.g{display:grid;gap:12px}.k{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}.c2{grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px}
+.card h2{font-size:14px;margin:0 0 10px}.kv{font-size:24px;font-weight:700}.mu{color:var(--mu);font-size:12px}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:600}
+.s-ok{background:var(--okb);color:var(--ok)}.s-wa{background:var(--wab);color:var(--wa)}.s-cr{background:var(--crb);color:var(--cr)}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}th{color:var(--mu);font-weight:600;font-size:12px}
+tr.row{cursor:pointer}tr.row:hover{background:var(--bg)}
+.bar{height:8px;border-radius:5px;background:var(--bd);overflow:hidden}.bar i{display:block;height:100%}
+.al{padding:7px 0;border-bottom:1px solid var(--bd);font-size:13px}.al:last-child{border:0}
+svg text{fill:var(--tx);font-size:11px;font-family:inherit}
+.row2{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+</style>
+</head>
+<body>
+<header>
+ <h1>PredictiveOps<small id="fac">Northfield Plant · live simulated telemetry</small></h1>
+ <nav id="nav"></nav>
+</header>
+<main id="app"></main>
+<script>
+var zones=[{id:'A',n:'Press Shop'},{id:'B',n:'Packaging'},{id:'C',n:'Utilities'}];
+var parts={'Bearing 6205':{s:6,min:3,c:18},'Cooling fan kit':{s:2,min:3,c:45},'Drive belt':{s:5,min:2,c:25},'Contactor 40A':{s:1,min:2,c:60},'Seal kit':{s:4,min:2,c:30}};
+var defs=[['M1','Hydraulic Press','A','Bearing 6205'],['M2','CNC Mill','A','Bearing 6205'],['M3','Stamping Unit','A','Seal kit'],['M4','Conveyor Line 1','B','Drive belt'],['M5','Labeling Robot','B','Contactor 40A'],['M6','Air Compressor','C','Cooling fan kit'],['M7','Chiller Pump','C','Seal kit'],['M8','Exhaust Fan','C','Drive belt']];
+var rnd=function(a,b){return a+Math.random()*(b-a)};
+var M=defs.map(function(d,i){return {id:d[0],n:d[1],z:d[2],part:d[3],wear:rnd(.05,.35)+(i==5?.35:0),rate:rnd(.0006,.0014),fault:null,h:{v:[],t:[],c:[]},st:'ok',health:100,v:0,t:0,c:0}});
+var WO=[],AL=[],wid=100,view='overview',sel='M1',tk=0,dt=0;
+var cls=function(s){return s=='ok'?'s-ok':s=='wa'?'s-wa':'s-cr'};
+var lab={ok:'Healthy',wa:'Warning',cr:'Critical'};
+var col={ok:'var(--ok)',wa:'var(--wa)',cr:'var(--cr)'};
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function sample(m){
+ var f=m.fault,w=m.wear;
+ m.v=2+w*6+(f=='bearing'?3:0)+rnd(-.2,.2);
+ m.t=55+w*25+(f=='heat'?16:0)+rnd(-1.2,1.2);
+ m.c=12+w*4+(f=='load'?5:0)+rnd(-.4,.4);
+ ['v','t','c'].forEach(function(k){m.h[k].push(m[k]);if(m.h[k].length>40)m.h[k].shift()});
+ m.health=Math.round(clamp(100-((m.v-2)/8*40+(m.t-55)/40*35+(m.c-12)/10*25),0,100));
+}
+function diag(m){
+ var s=[[(m.v-2)/8,'Bearing wear / imbalance'],[(m.t-55)/40,'Overheating'],[(m.c-12)/10,'Electrical overload']].sort(function(a,b){return b[0]-a[0]});
+ return m.health>85?'No fault pattern':s[0][1];
+}
+function rul(m){var r=m.rate*(m.fault?6:1);return Math.max(0,Math.round((1-m.wear)/r))}
+function tick(){
+ tk++;
+ M.forEach(function(m){
+  m.wear=Math.min(1,m.wear+m.rate*(m.fault?6:1));
+  sample(m);
+  var ns=(m.v>6.5||m.t>80||m.c>17||m.health<50)?'cr':(m.health<72?'wa':'ok');
+  if(ns!=m.st){
+   if(ns!='ok')AL.unshift({t:new Date().toLocaleTimeString(),m:m.n,s:ns,x:diag(m)+' · health '+m.health+'%'});
+   else AL.unshift({t:new Date().toLocaleTimeString(),m:m.n,s:'ok',x:'Recovered to healthy'});
+   if(AL.length>30)AL.pop();
+   m.st=ns;
+  }
+  if((ns=='cr'||m.health<55)&&!WO.some(function(w){return w.m==m.id&&w.s!='Done'}))
+   WO.unshift({id:'WO-'+(wid++),m:m.id,type:ns=='cr'?'Corrective':'Predictive',pr:ns=='cr'?'High':'Medium',s:'Open',part:m.part,issue:diag(m),auto:true});
+ });
+ if(view=='overview'||view=='machine')draw();
+}
+function fix(id){var m=find(id);m.wear=rnd(.02,.08);m.fault=null;m.h={v:[],t:[],c:[]};sample(m);m.st='ok'}
+function find(id){return M.filter(function(m){return m.id==id})[0]}
+function inject(id,f){var m=find(id);m.fault=f;draw()}
+function wo(id,a){
+ var w=WO.filter(function(x){return x.id==id})[0];
+ if(a=='start'){w.s='In progress'}
+ if(a=='done'){
+  if(parts[w.part].s<=0){alert('No stock for '+w.part+'. Reorder first.');return}
+  parts[w.part].s--;w.s='Done';dt+=rnd(1.5,4);fix(w.m);
+ }
+ draw();
+}
+function reorder(p){parts[p].s+=5;draw()}
+function go(v,id){view=v;if(id)sel=id;draw();window.scrollTo(0,0)}
+function spark(a,w,h,lo,hi,c){
+ if(a.length<2)return '';
+ var p=a.map(function(y,i){return (i/(39)*w).toFixed(1)+','+(h-(clamp(y,lo,hi)-lo)/(hi-lo)*h).toFixed(1)}).join(' ');
+ return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" preserveAspectRatio="none"><polyline fill="none" stroke="'+c+'" stroke-width="2" points="'+p+'"/></svg>';
+}
+function vOverview(){
+ var n=M.length,avg=Math.round(M.reduce(function(s,m){return s+m.health},0)/n);
+ var cr=M.filter(function(m){return m.st=='cr'}).length,wa=M.filter(function(m){return m.st=='wa'}).length;
+ var open=WO.filter(function(w){return w.s!='Done'}).length,done=WO.filter(function(w){return w.s=='Done'}).length;
+ var mtbf=Math.round(900/Math.max(1,cr+done+1)),mttr=done?(dt/done).toFixed(1):'–';
+ var oee=Math.round(clamp(avg*.9-cr*3,0,100));
+ var kp=[['Facility health',avg+'%'],['Machines at risk',(cr+wa)+' / '+n],['Open work orders',open],['MTBF (h)',mtbf],['MTTR (h)',mttr],['OEE',oee+'%']];
+ var map='<svg viewBox="0 0 640 250" width="100%">';
+ zones.forEach(function(z,zi){
+  var x=10+zi*212;map+='<rect x="'+x+'" y="10" width="202" height="230" rx="10" fill="none" stroke="var(--bd)" stroke-width="2"/><text x="'+(x+10)+'" y="30" font-weight="700">Zone '+z.id+' · '+z.n+'</text>';
+  M.filter(function(m){return m.z==z.id}).forEach(function(m,i){
+   var y=42+i*66;
+   map+='<g style="cursor:pointer" onclick="go(\'machine\',\''+m.id+'\')"><rect x="'+(x+10)+'" y="'+y+'" width="182" height="56" rx="8" fill="'+col[m.st]+'" fill-opacity=".18" stroke="'+col[m.st]+'" stroke-width="2"/><text x="'+(x+20)+'" y="'+(y+22)+'" font-weight="600">'+m.n+'</text><text x="'+(x+20)+'" y="'+(y+42)+'">Health '+m.health+'% · RUL ~'+rul(m)+'h</text></g>';
+  });
+ });
+ map+='</svg>';
+ return '<div class="g k">'+kp.map(function(k){return '<div class="card"><div class="mu">'+k[0]+'</div><div class="kv">'+k[1]+'</div></div>'}).join('')+'</div>'+
+ '<div class="g c2" style="margin-top:12px"><div class="card" style="grid-column:1/-1"><h2>Facility floor map <span class="mu">(tap a machine)</span></h2>'+map+'</div>'+
+ '<div class="card"><h2>Live alerts</h2>'+(AL.length?AL.slice(0,8).map(function(a){return '<div class="al"><span class="pill '+cls(a.s)+'">'+lab[a.s]+'</span> <b>'+a.m+'</b> – '+a.x+'<div class="mu">'+a.t+'</div></div>'}).join(''):'<div class="mu">All systems normal.</div>')+'</div>'+
+ '<div class="card scroll"><h2>Asset health ranking</h2><table><tr><th>Machine</th><th>Health</th><th>RUL</th></tr>'+M.slice().sort(function(a,b){return a.health-b.health}).map(function(m){return '<tr class="row" onclick="go(\'machine\',\''+m.id+'\')"><td>'+m.n+'</td><td style="min-width:110px"><div class="bar"><i style="width:'+m.health+'%;background:'+col[m.st]+'"></i></div></td><td>'+rul(m)+' h</td></tr>'}).join('')+'</table></div></div>';
+}
+function vMachine(){
+ var m=find(sel),z=zones.filter(function(z){return z.id==m.z})[0];
+ var tabs='<div class="row2" style="margin-bottom:12px">'+M.map(function(x){return '<button class="'+(x.id==sel?'on':'')+'" onclick="go(\'machine\',\''+x.id+'\')">'+x.n+'</button>'}).join('')+'</div>';
+ var ch=function(t,k,u,lo,hi){return '<div class="card"><div class="row2" style="justify-content:space-between"><h2 style="margin:0">'+t+'</h2><b>'+m[k].toFixed(1)+' '+u+'</b></div>'+spark(m.h[k],300,70,lo,hi,col[m.st])+'</div>'};
+ return tabs+'<div class="card"><div class="row2" style="justify-content:space-between"><div><h2 style="margin:0;font-size:18px">'+m.n+'</h2><div class="mu">'+m.id+' · Zone '+z.id+' – '+z.n+' · Critical part: '+m.part+'</div></div><span class="pill '+cls(m.st)+'">'+lab[m.st]+'</span></div>'+
+ '<div class="g k" style="margin-top:12px"><div><div class="mu">Health score</div><div class="kv">'+m.health+'%</div></div><div><div class="mu">Remaining useful life</div><div class="kv">~'+rul(m)+' h</div></div><div><div class="mu">Wear index</div><div class="kv">'+Math.round(m.wear*100)+'%</div></div><div><div class="mu">Diagnosis (ML rules)</div><div style="font-weight:600;margin-top:6px">'+diag(m)+'</div></div></div></div>'+
+ '<div class="g c2" style="margin-top:12px">'+ch('Vibration','v','mm/s',1,10)+ch('Temperature','t','°C',50,95)+ch('Motor current','c','A',10,20)+
+ '<div class="card"><h2>Fault simulator (demo)</h2><div class="mu" style="margin-bottom:8px">Inject a fault and watch the system detect it, raise an alert and auto-create a work order.</div><div class="row2"><button class="dng" onclick="inject(\''+m.id+'\',\'bearing\')">Bearing fault</button><button class="dng" onclick="inject(\''+m.id+'\',\'heat\')">Overheat</button><button class="dng" onclick="inject(\''+m.id+'\',\'load\')">Overload</button><button onclick="inject(\''+m.id+'\',null)">Clear</button></div>'+(m.fault?'<div class="mu" style="margin-top:8px">Active fault: '+m.fault+' (wear accelerated)</div>':'')+'</div></div>';
+}
+function vWO(){
+ return '<div class="card scroll"><h2>Maintenance work orders <span class="mu">(auto-generated from predictions)</span></h2>'+(WO.length?'<table><tr><th>ID</th><th>Machine</th><th>Type</th><th>Priority</th><th>Issue</th><th>Part</th><th>Status</th><th></th></tr>'+WO.map(function(w){
+  var m=find(w.m);
+  return '<tr><td>'+w.id+'</td><td>'+m.n+'</td><td>'+w.type+'</td><td><span class="pill '+(w.pr=='High'?'s-cr':'s-wa')+'">'+w.pr+'</span></td><td>'+w.issue+'</td><td>'+w.part+'</td><td>'+w.s+'</td><td>'+(w.s=='Open'?'<button onclick="wo(\''+w.id+'\',\'start\')">Start</button>':w.s=='In progress'?'<button class="pri" onclick="wo(\''+w.id+'\',\'done\')">Complete</button>':'')+'</td></tr>';
+ }).join('')+'</table>':'<div class="mu">No work orders yet. They appear automatically when a machine turns critical, or inject a fault on the Machines tab.</div>')+'</div>';
+}
+function vInv(){
+ return '<div class="card scroll"><h2>Spare parts inventory</h2><table><tr><th>Part</th><th>In stock</th><th>Min level</th><th>Unit cost</th><th>Status</th><th></th></tr>'+Object.keys(parts).map(function(p){
+  var x=parts[p],low=x.s<x.min;
+  return '<tr><td>'+p+'</td><td>'+x.s+'</td><td>'+x.min+'</td><td>$'+x.c+'</td><td><span class="pill '+(low?'s-cr':'s-ok')+'">'+(low?'Low stock':'OK')+'</span></td><td><button onclick="reorder(\''+p+'\')">Reorder +5</button></td></tr>';
+ }).join('')+'</table></div>';
+}
+function vRep(){
+ var done=WO.filter(function(w){return w.s=='Done'}).length;
+ var saved=done*4200,cost=Object.keys(parts).reduce(function(s,p){return s+parts[p].s*parts[p].c},0);
+ return '<div class="g k"><div class="card"><div class="mu">Failures avoided</div><div class="kv">'+done+'</div></div><div class="card"><div class="mu">Est. downtime cost saved</div><div class="kv">$'+saved.toLocaleString()+'</div></div><div class="card"><div class="mu">Inventory value</div><div class="kv">$'+cost.toLocaleString()+'</div></div><div class="card"><div class="mu">Telemetry cycles</div><div class="kv">'+tk+'</div></div></div>'+
+ '<div class="card scroll" style="margin-top:12px"><h2>Zone summary</h2><table><tr><th>Zone</th><th>Machines</th><th>Avg health</th><th>At risk</th></tr>'+zones.map(function(z){
+  var ms=M.filter(function(m){return m.z==z.id});
+  return '<tr><td>'+z.id+' – '+z.n+'</td><td>'+ms.length+'</td><td>'+Math.round(ms.reduce(function(s,m){return s+m.health},0)/ms.length)+'%</td><td>'+ms.filter(function(m){return m.st!='ok'}).length+'</td></tr>';
+ }).join('')+'</table></div><div class="card" style="margin-top:12px"><h2>How it works</h2><div class="mu">Sensors (vibration, temperature, current) stream every 1.5 s to the edge gateway. Features are scored into a health index; threshold and trend rules estimate remaining useful life and classify faults. Critical states raise alerts and auto-create work orders linked to spare parts.</div></div>';
+}
+function draw(){
+ var y=window.scrollY;
+ var tabs=[['overview','Overview'],['machine','Machines'],['wo','Work orders'],['inv','Inventory'],['rep','Reports']];
+ document.getElementById('nav').innerHTML=tabs.map(function(t){return '<button class="'+(view==t[0]?'on':'')+'" onclick="go(\''+t[0]+'\')">'+t[1]+(t[0]=='wo'&&WO.filter(function(w){return w.s!='Done'}).length?' ('+WO.filter(function(w){return w.s!='Done'}).length+')':'')+'</button>'}).join('');
+ document.getElementById('app').innerHTML=({overview:vOverview,machine:vMachine,wo:vWO,inv:vInv,rep:vRep})[view]();
+ window.scrollTo(0,y);
+}
+for(var i=0;i<25;i++)M.forEach(sample);
+M.forEach(function(m){m.st=(m.v>6.5||m.t>80||m.c>17||m.health<50)?'cr':(m.health<72?'wa':'ok')});
+draw();setInterval(tick,1500);
+</script>
+</body>
+</html>
